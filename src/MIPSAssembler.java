@@ -15,7 +15,9 @@ public class MIPSAssembler {
         if (commentIndex != -1) { instruction = instruction.substring(0, commentIndex); }
         // Remove whitespace from front and back
         instruction = instruction.trim();
-        System.out.println(instruction);
+
+        // DEBUGGING
+        // System.out.println(instruction);
 
         // Call main helper function, and store output in an int
         int machineCode = assembleMIPS(instruction);
@@ -30,6 +32,26 @@ public class MIPSAssembler {
         String[] RTypes = {"add", "and", "or", "slt", "sub"};
         String[] JTypes = {"j", "syscall"};
         String[] ITypes = {"addiu", "andi", "beq", "bne", "lui", "lw", "ori", "sw"};
+
+        // regex:
+        // "?:" prevents creation  of empty elements
+        // ",\\s" matches a comma or whitespace
+        // "+" matches one or more occurrences of wither
+        String regex = "(?:,|\\s)+";
+        String[] parts = instruction.split(regex);
+        for (int i = 0; i < parts.length; i++) {
+            int tickIndex = parts[i].indexOf("`");
+            int slashIndex = parts[i].indexOf("\\");
+
+            if ((tickIndex != -1 || slashIndex != -1) && parts[i].length() > 1) {
+                parts[i] = parts[i].substring(1, parts[i].length() - 1);
+            }
+
+            // DEBUGGING
+            // System.out.printf("parts[%d] = ", i);
+            // System.out.println(parts[i]);
+        }
+
 
         return 0;  // stub code
     }
