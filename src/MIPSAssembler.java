@@ -1,6 +1,8 @@
 // Link to google sheet with information:
 // https://docs.google.com/spreadsheets/d/18YZ0jNXLmXgINMvws57R3akAFXtTHVRhdQyYqoGsuJ0/edit?usp=sharing
 
+import java.util.Arrays;
+
 public class MIPSAssembler {
     public static void main(String[] args) {
         // Invalid usage check
@@ -55,9 +57,20 @@ public class MIPSAssembler {
             // System.out.println(parts[i]);
         }
 
+        String opcode = parts[0].toLowerCase();
+        String type = "default";
+        if (Arrays.asList(RTypes).contains(opcode))    { type = "rType"; }
+        if (Arrays.asList(ITypes).contains(opcode))    { type = "iType"; }
+        if (opcode.equals("syscall"))   { type = "syscall"; }
+        if (opcode.equals("j"))         { type = "j"; }
 
-
-        return 0;  // stub code
+        return switch (type) {
+            case "rType" ->     assembleRType(parts);
+            case "iType" ->     assembleIType(parts);
+            case "syscall" ->   assembleSyscall(parts);
+            case "j" ->         assembleJType(parts);
+            default ->          throw new IllegalArgumentException("Unsupported instruction: " + opcode);
+        };
     }
 
 
@@ -74,7 +87,8 @@ public class MIPSAssembler {
         int rd = 0;
         int shamt = 0;
         int funct = 0;
-        return opcode | rs | rt | rd | shamt | funct;
+        // return opcode | rs | rt | rd | shamt | funct;
+        return 1;
     }
 
 
@@ -88,7 +102,8 @@ public class MIPSAssembler {
         int rs = 0;
         int rt = 0;
         int imm = 0;
-        return opcode | rs | rt | imm;
+        // return opcode | rs | rt | imm;
+        return 2;
     }
 
 
@@ -98,7 +113,8 @@ public class MIPSAssembler {
     private static int assembleJType(String[] parts) {
         int opcode = 0;
         int target = 0;
-        return opcode | target;
+        // return opcode | target;
+        return 3;
     }
 
 
@@ -108,11 +124,12 @@ public class MIPSAssembler {
     // opcode is always 000000
     // code is 20-bit binary (unsure what it represents)
     // funct is always 001100
-    private static int assembleSyscall() {
+    private static int assembleSyscall(String[] parts) {
         int opcode = 0;
         int code = 0;
         int  funct = 0;
-        return opcode | code | funct;
+        // return opcode | code | funct;
+        return 4;
     }
 
 
