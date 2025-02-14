@@ -23,6 +23,7 @@ public class MIPSAssembler {
         int machineCode = assembleMIPS(instruction);
         System.out.printf("%08x%n", machineCode);  // Convert to hexadecimal
 
+
         // Also need a way to attach registers to their binary
         // ^^Same with opcode/funct... maybe use a Map?
     }
@@ -39,6 +40,8 @@ public class MIPSAssembler {
         // "+" matches one or more occurrences of wither
         String regex = "(?:,|\\s)+";
         String[] parts = instruction.split(regex);
+
+        // Remove escape sequences
         for (int i = 0; i < parts.length; i++) {
             int tickIndex = parts[i].indexOf("`");
             int slashIndex = parts[i].indexOf("\\");
@@ -51,6 +54,7 @@ public class MIPSAssembler {
             // System.out.printf("parts[%d] = ", i);
             // System.out.println(parts[i]);
         }
+
 
 
         return 0;  // stub code
