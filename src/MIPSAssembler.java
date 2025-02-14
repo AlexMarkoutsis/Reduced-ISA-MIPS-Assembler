@@ -3,17 +3,26 @@
 
 public class MIPSAssembler {
     public static void main(String[] args) {
+        // Invalid usage check
         if (args.length != 1) {
             System.out.println("Usage: java MIPSAssembler <MIPS instructions>");
             System.exit(1);
-
-            // Need some way to gather input and split into its parts
-
-            // Also need a way to attach registers to their binary
-            // ^^Same with opcode/funct... maybe use a Map?
-
-            // Must also handle comments: When "#" is read, stop reading input
         }
+
+        // Cut off comments
+        String instruction = args[0];
+        int commentIndex = instruction.indexOf("#");
+        if (commentIndex != -1) { instruction = instruction.substring(0, commentIndex); }
+        // Remove whitespace from front and back
+        instruction = instruction.trim();
+        System.out.println(instruction);
+
+        // Call main helper function, and store output in an int
+        int machineCode = assembleMIPS(instruction);
+        System.out.printf("%08x%n", machineCode);  // Convert to hexadecimal
+
+        // Also need a way to attach registers to their binary
+        // ^^Same with opcode/funct... maybe use a Map?
     }
 
 
