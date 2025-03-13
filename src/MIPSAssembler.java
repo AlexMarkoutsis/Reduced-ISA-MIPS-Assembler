@@ -1,27 +1,28 @@
 /*********************************************************************
  * Authors: Alex Markoutsis, Nathan Stout
  * Created: February 5, 2025
- *
+
  * This program simulates the process of converting MIPS assembly
  * instructions into their corresponding machine code. The program
  * reads MIPS instructions in string format, identifies their type
  * (R-type, I-type, J-type, or syscall), and generates a 32-bit binary
  * number that represents the instruction in machine code. The program
  * supports a reduced instruction set, but was built with intent to scale.
- *
+
  * The 'assembleMIPS' method is central to converting the instructions,
  * and helper methods are used to handle different instruction types.
  * The machine code is printed as a hexadecimal value.
- *
+
  * Coding assignment for MIPS assembly simulation.
  **********************************************************************/
 
 import java.util.Arrays;
 import java.util.List;
+import java.io.*;
 
 public class MIPSAssembler {
 
-// ################ DATA ################################################################
+// ################ SETUP ################################################################
 
     // Registers and their addresses
     static String[] registers = {
@@ -69,21 +70,37 @@ public class MIPSAssembler {
     public static void main(String[] args) {
         // Invalid usage check
         if (args.length != 1) {
-            System.out.println("Usage: java MIPSAssembler <MIPS instructions>");
+            System.out.println("Usage: java MIPSAssembler <input.asm>");
             System.exit(1);
         }
 
-        // Cut off comments
-        String instruction = args[0];
-        int commentIndex = instruction.indexOf("#");
-        if (commentIndex != -1) {
-            instruction = instruction.substring(0, commentIndex);
-        }
-        // Remove whitespace from front and back
-        instruction = instruction.trim();
+        String inputFileName = args[0];
+        int extensionIndex = inputFileName.indexOf(".");
 
-        int machineCode = assembleMIPS(instruction);
-        System.out.printf("%08x%n", machineCode);  // Convert to hexadecimal
+        // Check that the input has a file extension
+        if (extensionIndex == -1) {
+            System.out.println("Invalid file name: " + inputFileName);
+            System.exit(1);
+        }
+
+        // Check if file is .asm
+        String extension = inputFileName.substring(extensionIndex);
+        if (!extension.equals(".asm")) {
+            System.out.println("Invalid extension: " + extension);
+            System.exit(1);
+        }
+
+        // Get name of output files from the <input>.asm file
+        String outputFileName = inputFileName.substring(0, extensionIndex);
+
+        String textFileName = outputFileName + ".text";
+        String dataFileName = outputFileName + ".data";
+
+        try {
+            separateSections(inputFileName, textFileName, dataFileName);
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+        }
     }
 
 // ################ HELPER METHODS ######################################################
@@ -101,7 +118,7 @@ public class MIPSAssembler {
      * Output:
      * - A 32-bit binary number representing the MIPS instruction
      */
-    private static int assembleMIPS(String instruction) {
+    public static int assembleMIPS(String instruction) {
         // regex:
         // "?:"     prevents creation  of empty elements
         // ",\\s"   matches a comma or whitespace
@@ -280,4 +297,42 @@ public class MIPSAssembler {
             throw new IllegalArgumentException("Invalid immediate value: " + imm);
         }
     }
+
+    private static void separateSections(String inputFile, String textFile, String dataFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(inputFile));
+        BufferedWriter textWriter = new BufferedWriter(new FileWriter(textFile));
+        BufferedWriter dataWriter = new BufferedWriter(new FileWriter(dataFile));
+
+        String line;
+        boolean isTextSection = false;
+        boolean isDataSection = false;
+
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+
+            if (line.startsWith(".text")) {
+                isTextSection = true;
+                isDataSection = false;
+                continue;
+            } else if (line.startsWith(".data")) {
+                isTextSection = false;
+                isDataSection = true;
+                continue;
+            }
+
+            if (isTextSection) {
+                textWriter.write(line);
+                textWriter.newLine();
+            } else if (isDataSection) {
+                dataWriter.write(line);
+                dataWriter.newLine();
+            }
+        }
+
+        reader.close();
+        textWriter.close();
+        dataWriter.close();
+    }
 }
+
