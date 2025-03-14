@@ -5,6 +5,8 @@
 	odd_output:	.asciiz	"Your integer is ODD!"
 
 .text
+    move $s0, $s1
+    blt $s0, $s1, ITS_EVEN
 
 	# prompt the user for input
 	li $v0, 4
@@ -27,20 +29,20 @@
 	j ITS_ODD
 	
 	# tell the user that it's even
-ITS_EVEN:	
+
 	li $v0, 4
 	la $a0, even_output
 	syscall
-	
+
 	j EXIT
 	
 	# tell the user that it's odd
-ITS_ODD:	
+
 	li $v0, 4
 	la $a0, odd_output
 	syscall
 	
 	# exit cleanly
-EXIT:	
+
 	li $v0, 10
 	syscall

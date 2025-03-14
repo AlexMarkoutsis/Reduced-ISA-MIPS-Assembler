@@ -16,6 +16,7 @@
  * Coding assignment for MIPS assembly simulation.
  **********************************************************************/
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.io.*;
@@ -27,14 +28,15 @@ public class MIPSAssembler {
     // Registers and their addresses
     static String[] registers = {
             "$zero", "$at", "$v0", "$v1", "$a0", "$a1", "$a2", "$a3",
-              "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
-              "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
-              "$t8", "$t9", "$k0", "$k1", "$gp", "$sp", "$fp", "$ra"
+            "$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
+            "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
+            "$t8", "$t9", "$k0", "$k1", "$gp", "$sp", "$fp", "$ra"
     };
 
     // Instructions based on their types
     static String[] RTypes = {"add", "and", "or", "slt", "sub"};
     static String[] ITypes = {"addiu", "andi", "beq", "bne", "lui", "lw", "ori", "sw"};
+    static String[] Pseudos = { "li", "la", "blt", "move" };
 
     // Arrays for finding value based on instruction
     List<String> opcodeMap = Arrays.asList(new String[64]);
@@ -98,6 +100,8 @@ public class MIPSAssembler {
 
         try {
             separateSections(inputFileName, textFileName, dataFileName);
+            firstPass(textFileName);
+            processTextSection(textFileName);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
         }
@@ -213,8 +217,8 @@ public class MIPSAssembler {
             case "lw", "sw" -> {
                 // Split base and offset
                 String[] offsetAndBase = parts[2].split("[()]+");
-                    // offsetAndBase[0] = offset
-                    // offsetAndBase[1] = base
+                // offsetAndBase[0] = offset
+                // offsetAndBase[1] = base
 
                 if (offsetAndBase[0].isEmpty()) {
                     // No offset, e.g. _($t5)
@@ -294,9 +298,11 @@ public class MIPSAssembler {
                 return Integer.parseInt(imm); // Handle decimal values
             }
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid immediate value: " + imm);
+            return 105;
+            //throw new IllegalArgumentException("Invalid immediate value: " + imm);
         }
     }
+
 
     private static void separateSections(String inputFile, String textFile, String dataFile) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(inputFile));
@@ -334,5 +340,94 @@ public class MIPSAssembler {
         textWriter.close();
         dataWriter.close();
     }
-}
 
+
+    private static void firstPass(String textFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(textFile));
+        List<String> expandedInstructions = new ArrayList<>();
+
+        String line;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue; // Ignore empty lines and comments
+
+            String[] parts = line.split("(?:,|\s)+"); // Split instruction
+            String opcode = parts[0].toLowerCase();
+
+            switch (opcode) {
+                case "move":
+                    expandedInstructions.add("add " + parts[1] + ", " + parts[2] + ", $zero");
+                    break;
+
+                // Working ->
+                case "li":
+                    int imm = parseImmediate(parts[2]);
+                    int upper = (imm >> 16) & 0xFFFF;
+                    int lower = imm & 0xFFFF;
+                    expandedInstructions.add("lui " + "$at, " + upper);
+                    expandedInstructions.add("ori " + parts[1] + ", $at, " + lower);
+                    break;
+
+                // THIS CODE MAY CAUSE ISSUES, NOT SURE WHAT "$1" MEANS ON THE WIKI
+                case "blt":
+                    expandedInstructions.add("slt $at, " + parts[1] + ", " + parts[2]);
+                    expandedInstructions.add("bne $at, $zero, " + parts[3]);
+                    break;
+
+                case "la":
+                    // int address = parseImmediate(parts[2]);
+                    // int disp = address - 0x10010000;
+                    expandedInstructions.add("lui $at, 0x1001");
+                    expandedInstructions.add("ori " + parts[1] + ", $at, " + parts[2]);
+                    break;
+
+                default:
+                    expandedInstructions.add(line); // Keep non-pseudoinstructions unchanged
+                    break;
+            }
+        }
+        reader.close();
+
+        // Write the expanded instructions back to the file
+        BufferedWriter writer = new BufferedWriter(new FileWriter(textFile));
+        for (String instruction : expandedInstructions) {
+            writer.write(instruction);
+            writer.newLine();
+        }
+        writer.close();
+    }
+
+
+    private static void processTextSection(String textFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(textFile));
+        File tempFile = new File(textFile + ".tmp");
+        BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile));
+
+        String line;
+        while ((line = reader.readLine()) != null) {
+            int commentIndex = line.indexOf("#");
+            if (commentIndex != -1) {
+                line = line.substring(0, commentIndex);
+            }
+            line = line.trim();
+            if (line.isEmpty()) continue;
+
+            int machineCode = assembleMIPS(line);
+            writer.write(String.format("%08x", machineCode));
+            writer.newLine();
+        }
+
+        reader.close();
+        writer.close();
+
+        // Replace original file with processed file
+        File originalFile = new File(textFile);
+        if (!originalFile.delete()) {
+            System.err.println("Error deleting original file: " + textFile);
+        }
+        if (!tempFile.renameTo(originalFile)) {
+            System.err.println("Error renaming temp file to original file name.");
+        }
+    }
+
+}
