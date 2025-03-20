@@ -16,9 +16,7 @@
  * Coding assignment for MIPS assembly simulation.
  **********************************************************************/
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.io.*;
 
 public class MIPSAssembler {
@@ -36,11 +34,13 @@ public class MIPSAssembler {
     // Instructions based on their types
     static String[] RTypes = {"add", "and", "or", "slt", "sub"};
     static String[] ITypes = {"addiu", "andi", "beq", "bne", "lui", "lw", "ori", "sw"};
-    static String[] Pseudos = { "li", "la", "blt", "move" };
 
     // Arrays for finding value based on instruction
     List<String> opcodeMap = Arrays.asList(new String[64]);
     List<String> functMap = Arrays.asList(new String[64]);
+
+    private static final HashMap<String, Integer> labelMap = new HashMap<>();
+    private static final List<String> expandedInstructions = new ArrayList<>();
 
     // Initializes values in arrays (Constructor)
     // Used in "assemble" methods
@@ -100,7 +100,7 @@ public class MIPSAssembler {
 
         try {
             separateSections(inputFileName, textFileName, dataFileName);
-            firstPass(textFileName);
+            replacePseudoInstructions(textFileName);
             processTextSection(textFileName);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
@@ -204,7 +204,22 @@ public class MIPSAssembler {
             case "beq", "bne" -> {
                 rs = Arrays.asList(registers).indexOf(parts[1]);
                 rt = Arrays.asList(registers).indexOf(parts[2]);
-                imm = parseImmediate(parts[3]);
+
+                // Find first occurrence of the given instruction and store the PC address
+                // TODO: Figure out issue with duplicate branch instruction lines giving same output
+                int currentPC = 0x00400000;
+                for (String instruction : expandedInstructions) {
+                    String regex = "(?:,|\\s)+";
+                    String[] temps = instruction.split(regex);
+                    if (Arrays.equals(temps, parts)) {
+                        break;
+                    }
+
+                    currentPC += 4;
+                }
+
+                // Calculate the branch offset (in words)
+                imm = (labelMap.get(parts[3]) - (currentPC + 4)) / 4;
             }
 
             // lui instruction
@@ -258,6 +273,12 @@ public class MIPSAssembler {
         int opcode = assembler.opcodeMap.indexOf(parts[0]);
         int target = parseImmediate(parts[1]);
 
+        if (labelMap.containsKey(parts[1])) {
+            target = (labelMap.get(parts[1]) >> 2) & 0x03FFFFFF;
+        } else {
+            throw new IllegalArgumentException("Label not found: " + parts[1]);
+        }
+
         return (opcode << 26) | (target & 0x03FFFFFF);
     }
 
@@ -298,35 +319,53 @@ public class MIPSAssembler {
                 return Integer.parseInt(imm); // Handle decimal values
             }
         } catch (NumberFormatException e) {
+            // TODO: Replace with value of variable in the .data section
             return 105;
             //throw new IllegalArgumentException("Invalid immediate value: " + imm);
         }
     }
 
 
+    /* separateSections:
+     * Method for taking string some input *.asm file and
+     * splitting into *.text and *.data files of the same name
+     *
+     * Input:
+     * - inputFile: Name of *.asm file to be split
+     * - textFile: Name of *.text file to be generated
+     * - dataFile: Name of *.data file to be generated
+     *
+     * Output:
+     * - *.text and *.data files are created in same directory, with the same prefix
+     */
     private static void separateSections(String inputFile, String textFile, String dataFile) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(inputFile));
         BufferedWriter textWriter = new BufferedWriter(new FileWriter(textFile));
         BufferedWriter dataWriter = new BufferedWriter(new FileWriter(dataFile));
 
         String line;
+
+        // Flags to check which section the reader is currently in
         boolean isTextSection = false;
         boolean isDataSection = false;
 
         while ((line = reader.readLine()) != null) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
+            line = line.trim();  // Remove leading/trailing whitespace
+            if (line.isEmpty()) continue;  // Skip empty lines
 
             if (line.startsWith(".text")) {
+                // Set text flag to true and data flag to false
                 isTextSection = true;
                 isDataSection = false;
                 continue;
             } else if (line.startsWith(".data")) {
+                // Set data flag to true and text flag to false
                 isTextSection = false;
                 isDataSection = true;
                 continue;
             }
 
+            // Write to respective files, based on the flags
             if (isTextSection) {
                 textWriter.write(line);
                 textWriter.newLine();
@@ -342,49 +381,75 @@ public class MIPSAssembler {
     }
 
 
-    private static void firstPass(String textFile) throws IOException {
+    /* replacePseudoInstructions:
+     * Method for identifying and replacing MIPS pseudo-instructions
+     * with their corresponding actual instructions, and then
+     * writing the expanded instructions back to the same file.
+     *
+     * Input:
+     * - textFile: The name of the .text file
+     *
+     * Output:
+     * - The modified file with pseudo-instructions replaced with
+     *   their equivalent real instructions
+     */
+    private static void replacePseudoInstructions(String textFile) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(textFile));
-        List<String> expandedInstructions = new ArrayList<>();
 
         String line;
+        int address = 0x00400000;  // Beginning of the .text file
+
         while ((line = reader.readLine()) != null) {
-            line = line.trim();
+            line = line.trim();  // Remove leading/trailing whitespace
             if (line.isEmpty() || line.startsWith("#")) continue; // Ignore empty lines and comments
 
-            String[] parts = line.split("(?:,|\s)+"); // Split instruction
+            // Label handling:
+            if (line.trim().endsWith(":")) {
+                String label = line.substring(0, line.length() - 1);  // Remove colon
+                labelMap.put(label, address);  // Store label and its address for later use
+                continue; // Skip writing labels to output
+            }
+
+            String[] parts = line.split("[, ]+"); // Split instruction
             String opcode = parts[0].toLowerCase();
 
+            // Replace pseudo-instructions with the actual MIPS equivalents
             switch (opcode) {
                 case "move":
                     expandedInstructions.add("add " + parts[1] + ", " + parts[2] + ", $zero");
                     break;
 
-                // Working ->
                 case "li":
                     int imm = parseImmediate(parts[2]);
-                    int upper = (imm >> 16) & 0xFFFF;
-                    int lower = imm & 0xFFFF;
-                    expandedInstructions.add("lui " + "$at, " + upper);
-                    expandedInstructions.add("ori " + parts[1] + ", $at, " + lower);
+                    if (imm >= -32768 && imm <= 32767) {
+                        // If immediate fits in 16 bits, use addiu
+                        expandedInstructions.add("addiu " + parts[1] + ", $zero, " + imm);
+                    } else {
+                        // Otherwise, use lui + ori to load 32 bit immediate
+                        expandedInstructions.add("lui $at, " + ((imm >> 16) & 0xFFFF));
+                        address += 4;
+                        expandedInstructions.add("ori " + parts[1] + ", $at, " + (imm & 0xFFFF));
+                    }
                     break;
 
-                // THIS CODE MAY CAUSE ISSUES, NOT SURE WHAT "$1" MEANS ON THE WIKI
                 case "blt":
                     expandedInstructions.add("slt $at, " + parts[1] + ", " + parts[2]);
+                    address += 4;  // Keep track of address for label handling
                     expandedInstructions.add("bne $at, $zero, " + parts[3]);
                     break;
 
                 case "la":
-                    // int address = parseImmediate(parts[2]);
-                    // int disp = address - 0x10010000;
                     expandedInstructions.add("lui $at, 0x1001");
+                    address += 4;  // Keep track of address for label handling
                     expandedInstructions.add("ori " + parts[1] + ", $at, " + parts[2]);
                     break;
 
                 default:
-                    expandedInstructions.add(line); // Keep non-pseudoinstructions unchanged
+                    expandedInstructions.add(line); // Keep non-pseudo instructions unchanged
                     break;
             }
+
+            address += 4;  // Keep track of address for label handling
         }
         reader.close();
 
@@ -398,21 +463,41 @@ public class MIPSAssembler {
     }
 
 
+    /* processTextSection:
+     * Method for processing a given .text file containing MIPS
+     * assembly instructions. Removes comments, converts each
+     * instruction to its machine code representation, and then
+     * replaces original file with the processed version
+     *
+     * Input:
+     * - textFile: The name of the .text file containing the MIPS
+     *   assembly instructions
+     *
+     * Output:
+     * - The file is updates with each instruction converted to machine code
+     */
     private static void processTextSection(String textFile) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(textFile));
+
+        // Create temporary file to store processed content
         File tempFile = new File(textFile + ".tmp");
         BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile));
 
         String line;
+
         while ((line = reader.readLine()) != null) {
-            int commentIndex = line.indexOf("#");
+            int commentIndex = line.indexOf("#");  // Remove comments
             if (commentIndex != -1) {
                 line = line.substring(0, commentIndex);
             }
-            line = line.trim();
-            if (line.isEmpty()) continue;
 
+            line = line.trim();  // Remove trailing/leading whitespace
+            if (line.isEmpty()) continue;  // Skip empty lines
+
+            // Convert MIPS assembly to its machine code representation
             int machineCode = assembleMIPS(line);
+
+            // Write the machine code to a hexadecimal string
             writer.write(String.format("%08x", machineCode));
             writer.newLine();
         }
@@ -429,5 +514,4 @@ public class MIPSAssembler {
             System.err.println("Error renaming temp file to original file name.");
         }
     }
-
 }
