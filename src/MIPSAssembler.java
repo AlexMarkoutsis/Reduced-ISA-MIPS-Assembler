@@ -41,6 +41,8 @@ public class MIPSAssembler {
 
     private static final HashMap<String, Integer> labelMap = new HashMap<>();
     private static final List<String> expandedInstructions = new ArrayList<>();
+    private static HashMap<String, Integer> dataLabelMap = new HashMap<>();
+
 
     // Initializes values in arrays (Constructor)
     // Used in "assemble" methods
@@ -100,6 +102,7 @@ public class MIPSAssembler {
 
         try {
             separateSections(inputFileName, textFileName, dataFileName);
+            processDataSection(dataFileName);
             replacePseudoInstructions(textFileName);
             processTextSection(textFileName);
         } catch (Exception e) {
@@ -319,9 +322,23 @@ public class MIPSAssembler {
                 return Integer.parseInt(imm); // Handle decimal values
             }
         } catch (NumberFormatException e) {
-            // TODO: Replace with value of variable in the .data section
-            return 105;
-            //throw new IllegalArgumentException("Invalid immediate value: " + imm);
+            // Check if the immediate is a data label
+            if (dataLabelMap.containsKey(imm)) {
+                return dataLabelMap.get(imm);
+            }
+
+            // If this is an offset for the "la" pseudo-instruction
+            // Calculate offset from the data section base address (0x10010000)
+            if (imm.matches("\\d+")) {
+                try {
+                    int offset = Integer.parseInt(imm);
+                    return offset; // Return the offset for "ori" instruction
+                } catch (NumberFormatException ex) {
+                    // Not a valid offset
+                }
+            }
+
+            throw new IllegalArgumentException("Invalid immediate value: " + imm);
         }
     }
 
@@ -460,6 +477,120 @@ public class MIPSAssembler {
             writer.newLine();
         }
         writer.close();
+    }
+
+    /**
+     * Method for processing the .data section of a MIPS assembly file.
+     * Reads each line, extracts labels and their associated data,
+     * calculates memory addresses, and writes the data to the output file.
+     *
+     * Input:
+     * - dataFile: Name of the .data file containing the data section declarations
+     *
+     * Output:
+     * - Processed .data file with memory contents in hexadecimal format
+     * - Populated dataLabelMap with addresses of data labels
+     */
+    private static void processDataSection(String dataFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(dataFile));
+
+        // Create a map to store data labels and their addresses
+        HashMap<String, Integer> dataLabelMap = new HashMap<>();
+
+        // List to store processed data values
+        List<String> processedData = new ArrayList<>();
+
+        String line;
+        int currentAddress = 0x10010000; // Starting address for data section
+
+        while ((line = reader.readLine()) != null) {
+            // Remove comments
+            int commentIndex = line.indexOf("#");
+            if (commentIndex != -1) {
+                line = line.substring(0, commentIndex);
+            }
+
+            line = line.trim();
+            if (line.isEmpty()) continue; // Skip empty lines
+
+            // Parse label and data declaration
+            int colonIndex = line.indexOf(":");
+            if (colonIndex == -1) continue; // Skip lines without labels
+
+            String label = line.substring(0, colonIndex).trim();
+            String rest = line.substring(colonIndex + 1).trim();
+
+            // Store label address in map
+            dataLabelMap.put(label, currentAddress);
+
+            // Split data type and value
+            String[] parts = rest.split("\\s+", 2);
+            if (parts.length < 2) continue; // Skip invalid data declarations
+
+            String dataType = parts[0];
+            String dataValue = parts[1].trim();
+
+            // Process .asciiz data type
+            if (dataType.equals(".asciiz")) {
+                // Extract string between quotes
+                int startQuote = dataValue.indexOf("\"");
+                int endQuote = dataValue.lastIndexOf("\"");
+
+                if (startQuote != -1 && endQuote != -1 && startQuote != endQuote) {
+                    String str = dataValue.substring(startQuote + 1, endQuote);
+
+                    // Process string in little-endian format (4 bytes at a time)
+                    for (int i = 0; i < str.length() + 1; i += 4) { // +1 for null terminator
+                        int value = 0;
+
+                        // Pack up to 4 bytes in little-endian order
+                        for (int j = 0; j < 4; j++) {
+                            int bytePos = i + j;
+                            int byteValue = 0;
+
+                            if (bytePos < str.length()) {
+                                byteValue = str.charAt(bytePos); // ASCII value of character
+                            } else if (bytePos == str.length()) {
+                                byteValue = 0; // Null terminator
+                            }
+
+                            // Place byte in appropriate position (little-endian)
+                            value |= (byteValue << (8 * j));
+                        }
+
+                        // Add the packed value to processed data
+                        processedData.add(String.format("%08x", value));
+                        currentAddress += 4; // Increment address by word size
+                    }
+                }
+            }
+            // Handle other data types if needed (not required for this assignment)
+        }
+
+        reader.close();
+
+        // Write processed data to output file
+        File tempFile = new File(dataFile + ".tmp");
+        BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile));
+
+        for (String data : processedData) {
+            writer.write(data);
+            writer.newLine();
+        }
+
+        writer.close();
+
+        // Replace original file with processed file
+        File originalFile = new File(dataFile);
+        if (!originalFile.delete()) {
+            System.err.println("Error deleting original file: " + dataFile);
+        }
+        if (!tempFile.renameTo(originalFile)) {
+            System.err.println("Error renaming temp file to original file name.");
+        }
+
+        // Make the dataLabelMap accessible to other methods
+        MIPSAssembler.dataLabelMap = dataLabelMap;
     }
 
 
