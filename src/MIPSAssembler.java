@@ -210,7 +210,17 @@ public class MIPSAssembler {
 
                 // Find first occurrence of the given instruction and store the PC address
                 // TODO: Figure out issue with duplicate branch instruction lines giving same output
-                int currentPC = 0x00400000;
+                int currentPC = getCurrentInstructionPC(parts);
+
+                // If the third argument is a label (not a number)
+                if (labelMap.containsKey(parts[3])) {
+                    // Calculate the branch offset (in words)
+                    imm = (labelMap.get(parts[3]) - (currentPC + 4)) / 4;
+                } else {
+                    // If it's an immediate value
+                    imm = parseImmediate(parts[3]);
+                }
+
                 for (String instruction : expandedInstructions) {
                     String regex = "(?:,|\\s)+";
                     String[] temps = instruction.split(regex);
@@ -257,6 +267,37 @@ public class MIPSAssembler {
         }
 
         return (opcode << 26) | (rs << 21) | (rt << 16) | (imm & 0xFFFF);
+    }
+
+    // Helper method to get current instruction PC
+    private static int getCurrentInstructionPC(String[] parts) {
+        // Start with the base text section address
+        int pc = 0x00400000;
+
+        // Find position in expanded instructions
+        for (String instruction : expandedInstructions) {
+            // Check if this is the instruction we're looking for
+            if (instructionMatches(instruction, parts)) {
+                return pc;
+            }
+            pc += 4;
+        }
+
+        return 0x00400000; // Default in case of error
+    }
+
+    // Helper to compare instructions
+    private static boolean instructionMatches(String instruction, String[] parts) {
+        String[] instructionParts = instruction.split("(?:,|\\s)+");
+        if (instructionParts.length != parts.length) return false;
+
+        // Compare only the opcode and registers/labels, ignoring whitespace differences
+        for (int i = 0; i < parts.length; i++) {
+            if (!instructionParts[i].equals(parts[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
@@ -315,6 +356,16 @@ public class MIPSAssembler {
      * - 16-bit binary representation of imm
      */
     private static int parseImmediate(String imm) {
+        // Check if it's a label
+        if (labelMap.containsKey(imm)) {
+            return labelMap.get(imm);
+        }
+
+        // Check if it's a data label
+        if (dataLabelMap.containsKey(imm)) {
+            return dataLabelMap.get(imm);
+        }
+
         try {
             if (imm.startsWith("0x") || imm.startsWith("0X")) {
                 return Integer.parseInt(imm.substring(2), 16); // Handle hexadecimal values
@@ -326,7 +377,6 @@ public class MIPSAssembler {
             if (dataLabelMap.containsKey(imm)) {
                 return dataLabelMap.get(imm);
             }
-
             // If this is an offset for the "la" pseudo-instruction
             // Calculate offset from the data section base address (0x10010000)
             if (imm.matches("\\d+")) {
@@ -494,9 +544,6 @@ public class MIPSAssembler {
     private static void processDataSection(String dataFile) throws IOException {
         BufferedReader reader = new BufferedReader(new FileReader(dataFile));
 
-        // Create a map to store data labels and their addresses
-        HashMap<String, Integer> dataLabelMap = new HashMap<>();
-
         // List to store processed data values
         List<String> processedData = new ArrayList<>();
 
@@ -539,8 +586,11 @@ public class MIPSAssembler {
                 if (startQuote != -1 && endQuote != -1 && startQuote != endQuote) {
                     String str = dataValue.substring(startQuote + 1, endQuote);
 
+                    // Calculate total bytes needed (string length + null terminator)
+                    int totalBytes = str.length() + 1;
+
                     // Process string in little-endian format (4 bytes at a time)
-                    for (int i = 0; i < str.length() + 1; i += 4) { // +1 for null terminator
+                    for (int i = 0; i < totalBytes; i += 4) {
                         int value = 0;
 
                         // Pack up to 4 bytes in little-endian order
@@ -564,14 +614,12 @@ public class MIPSAssembler {
                     }
                 }
             }
-            // Handle other data types if needed (not required for this assignment)
         }
 
         reader.close();
 
         // Write processed data to output file
-        File tempFile = new File(dataFile + ".tmp");
-        BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile));
+        BufferedWriter writer = new BufferedWriter(new FileWriter(dataFile));
 
         for (String data : processedData) {
             writer.write(data);
@@ -579,18 +627,6 @@ public class MIPSAssembler {
         }
 
         writer.close();
-
-        // Replace original file with processed file
-        File originalFile = new File(dataFile);
-        if (!originalFile.delete()) {
-            System.err.println("Error deleting original file: " + dataFile);
-        }
-        if (!tempFile.renameTo(originalFile)) {
-            System.err.println("Error renaming temp file to original file name.");
-        }
-
-        // Make the dataLabelMap accessible to other methods
-        MIPSAssembler.dataLabelMap = dataLabelMap;
     }
 
 
@@ -608,6 +644,9 @@ public class MIPSAssembler {
      * - The file is updates with each instruction converted to machine code
      */
     private static void processTextSection(String textFile) throws IOException {
+        // First pass: collect all labels and their addresses
+        calculateTextSectionAddresses(textFile);
+
         BufferedReader reader = new BufferedReader(new FileReader(textFile));
 
         // Create temporary file to store processed content
@@ -624,6 +663,9 @@ public class MIPSAssembler {
 
             line = line.trim();  // Remove trailing/leading whitespace
             if (line.isEmpty()) continue;  // Skip empty lines
+
+            // Skip label-only lines during assembly
+            if (line.endsWith(":")) continue;
 
             // Convert MIPS assembly to its machine code representation
             int machineCode = assembleMIPS(line);
@@ -644,5 +686,38 @@ public class MIPSAssembler {
         if (!tempFile.renameTo(originalFile)) {
             System.err.println("Error renaming temp file to original file name.");
         }
+    }
+
+    // New helper method to calculate addresses for all labels in the text section
+    private static void calculateTextSectionAddresses(String textFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(textFile));
+
+        String line;
+        int address = 0x00400000;  // Beginning of the .text file
+
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            // Process label declarations (with or without instructions on same line)
+            if (line.contains(":")) {
+                int colonIndex = line.indexOf(":");
+                String label = line.substring(0, colonIndex).trim();
+                labelMap.put(label, address);
+
+                // If there's an instruction after the label on the same line
+                String rest = line.substring(colonIndex + 1).trim();
+                if (!rest.isEmpty()) {
+                    address += 4;  // Increment address for the instruction
+                }
+                // Otherwise, the label refers to the next instruction
+            }
+            else {
+                // Regular instruction line
+                address += 4;
+            }
+        }
+
+        reader.close();
     }
 }
