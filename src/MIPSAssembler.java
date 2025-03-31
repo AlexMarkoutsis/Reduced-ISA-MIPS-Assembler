@@ -41,6 +41,7 @@ public class MIPSAssembler {
 
     private static final HashMap<String, Integer> labelMap = new HashMap<>();
     private static final List<String> expandedInstructions = new ArrayList<>();
+    private static final HashMap<String, Integer> dataLabelMap = new HashMap<>();
 
     // Initializes values in arrays (Constructor)
     // Used in "assemble" methods
@@ -100,6 +101,7 @@ public class MIPSAssembler {
 
         try {
             separateSections(inputFileName, textFileName, dataFileName);
+            processDataSection(dataFileName);
             replacePseudoInstructions(textFileName);
             processTextSection(textFileName);
         } catch (Exception e) {
@@ -271,7 +273,8 @@ public class MIPSAssembler {
         MIPSAssembler assembler = new MIPSAssembler();
 
         int opcode = assembler.opcodeMap.indexOf(parts[0]);
-        int target = parseImmediate(parts[1]);
+        parseImmediate(parts[1]);
+        int target;
 
         if (labelMap.containsKey(parts[1])) {
             target = (labelMap.get(parts[1]) >> 2) & 0x03FFFFFF;
@@ -312,16 +315,24 @@ public class MIPSAssembler {
      * - 16-bit binary representation of imm
      */
     private static int parseImmediate(String imm) {
+        // Check if it's a label
+        if (labelMap.containsKey(imm)) {
+            return labelMap.get(imm);
+        }
+
+        // Check if it's a data label
+        if (dataLabelMap.containsKey(imm)) {
+            return dataLabelMap.get(imm);
+        }
+
         try {
             if (imm.startsWith("0x") || imm.startsWith("0X")) {
-                return Integer.parseInt(imm.substring(2), 16); // Handle hexadecimal values
+                return Integer.parseInt(imm.substring(2), 16);
             } else {
-                return Integer.parseInt(imm); // Handle decimal values
+                return Integer.parseInt(imm);
             }
         } catch (NumberFormatException e) {
-            // TODO: Replace with value of variable in the .data section
-            return 105;
-            //throw new IllegalArgumentException("Invalid immediate value: " + imm);
+            throw new IllegalArgumentException("Invalid immediate value or undefined label: " + imm);
         }
     }
 
@@ -462,6 +473,106 @@ public class MIPSAssembler {
         writer.close();
     }
 
+    /*
+     * Method for processing the .data section of a MIPS assembly file.
+     * Reads each line, extracts labels and their associated data,
+     * calculates memory addresses, and writes the data to the output file.
+     *
+     * Input:
+     * - dataFile: Name of the .data file containing the data section declarations
+     *
+     * Output:
+     * - Processed .data file with memory contents in hexadecimal format
+     * - Populated dataLabelMap with addresses of data labels
+     */
+    private static void processDataSection(String dataFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(dataFile));
+        BufferedWriter writer = new BufferedWriter(new FileWriter(dataFile + ".tmp"));
+
+        String line;
+        int dataAddress = 0x10010000;
+        StringBuilder currentLine = new StringBuilder();
+        int bytesInCurrentLine = 0;
+
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            // Handle labels
+            if (line.contains(":")) {
+                int colonIndex = line.indexOf(":");
+                String label = line.substring(0, colonIndex).trim();
+                dataLabelMap.put(label, dataAddress);
+
+                // Check for directive after label
+                String remaining = line.substring(colonIndex + 1).trim();
+                if (remaining.isEmpty()) continue;
+                line = remaining;
+            }
+
+            String[] parts = line.split("\\s+", 2);
+            if (parts.length < 2) continue;
+
+            String directive = parts[0].toLowerCase();
+            String operands = parts[1].split("#")[0].trim();
+
+            if (directive.equals(".asciiz")) {// Process .asciiz directive
+                if (!operands.startsWith("\"") || !operands.endsWith("\"")) {
+                    throw new IllegalArgumentException("String must be quoted: " + operands);
+                }
+
+                String str = operands.substring(1, operands.length() - 1); // Remove quotes
+
+                // Convert each character to hex and add to current line
+                for (char c : str.toCharArray()) {
+                    String hexByte = String.format("%02x", (int) c);
+                    currentLine.insert(0, hexByte); // Insert at front for little-endian
+                    bytesInCurrentLine++;
+
+                    // If we've reached 4 bytes, write them out
+                    if (bytesInCurrentLine == 4) {
+                        writer.write(currentLine.toString());
+                        writer.newLine();
+                        currentLine = new StringBuilder();
+                        bytesInCurrentLine = 0;
+                    }
+                }
+
+                // Add null terminator
+                currentLine.insert(0, "00");
+                bytesInCurrentLine++;
+
+                // If we've reached 4 bytes after adding null terminator, write them out
+                if (bytesInCurrentLine == 4) {
+                    writer.write(currentLine.toString());
+                    writer.newLine();
+                    currentLine = new StringBuilder();
+                    bytesInCurrentLine = 0;
+                }
+
+                // Calculate length including null terminator
+                int length = str.length() + 1; // +1 for null
+                dataAddress += length;
+
+                // Other directives would be handled here...
+            } else {
+                throw new IllegalArgumentException("Unknown data directive: " + directive);
+            }
+        }
+
+        reader.close();
+        writer.close();
+
+        // Replace original file
+        File originalFile = new File(dataFile);
+        if (!originalFile.delete()) {
+            System.err.println("Error deleting original data file: " + dataFile);
+        }
+        if (!new File(dataFile + ".tmp").renameTo(originalFile)) {
+            System.err.println("Error renaming temp data file to original file name.");
+        }
+    }
+
 
     /* processTextSection:
      * Method for processing a given .text file containing MIPS
@@ -477,6 +588,9 @@ public class MIPSAssembler {
      * - The file is updates with each instruction converted to machine code
      */
     private static void processTextSection(String textFile) throws IOException {
+        // First pass: collect all labels and their addresses
+        calculateTextSectionAddresses(textFile);
+
         BufferedReader reader = new BufferedReader(new FileReader(textFile));
 
         // Create temporary file to store processed content
@@ -493,6 +607,9 @@ public class MIPSAssembler {
 
             line = line.trim();  // Remove trailing/leading whitespace
             if (line.isEmpty()) continue;  // Skip empty lines
+
+            // Skip label-only lines during assembly
+            if (line.endsWith(":")) continue;
 
             // Convert MIPS assembly to its machine code representation
             int machineCode = assembleMIPS(line);
@@ -513,5 +630,38 @@ public class MIPSAssembler {
         if (!tempFile.renameTo(originalFile)) {
             System.err.println("Error renaming temp file to original file name.");
         }
+    }
+
+    // New helper method to calculate addresses for all labels in the text section
+    private static void calculateTextSectionAddresses(String textFile) throws IOException {
+        BufferedReader reader = new BufferedReader(new FileReader(textFile));
+
+        String line;
+        int address = 0x00400000;  // Beginning of the .text file
+
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+
+            // Process label declarations (with or without instructions on same line)
+            if (line.contains(":")) {
+                int colonIndex = line.indexOf(":");
+                String label = line.substring(0, colonIndex).trim();
+                labelMap.put(label, address);
+
+                // If there's an instruction after the label on the same line
+                String rest = line.substring(colonIndex + 1).trim();
+                if (!rest.isEmpty()) {
+                    address += 4;  // Increment address for the instruction
+                }
+                // Otherwise, the label refers to the next instruction
+            }
+            else {
+                // Regular instruction line
+                address += 4;
+            }
+        }
+
+        reader.close();
     }
 }
