@@ -102,8 +102,3 @@ Reduced-ISA-MIPS-Assembler/
 | Java parsing utilities | Instruction tokenization and processing |
 
 No external libraries or dependencies are used.
-
----
-
-## Project Status
-This project is complete and is actively featured on my résumé, LinkedIn profile, and GitHub portfolio as an example of low-level systems programming and computer architecture expertise.
