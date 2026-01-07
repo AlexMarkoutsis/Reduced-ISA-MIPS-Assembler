@@ -99,7 +99,7 @@ This produces two output files in the same directory as the input:
 
 ---
 
-## 📄 Output File Format
+## Output File Format
 
 Each output file:
 - Contains one 32-bit value per line  
