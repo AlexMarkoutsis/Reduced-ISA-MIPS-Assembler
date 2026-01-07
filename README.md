@@ -9,7 +9,7 @@ This repository contains the complete implementation, including instruction pars
 
 ---
 
-## 🚀 Features
+## Features
 
 - Full assembler for a reduced MIPS ISA  
 - Supports **15 core instructions** across R-type, I-type, and J-type formats  
@@ -34,7 +34,7 @@ This repository contains the complete implementation, including instruction pars
 
 ---
 
-## 🧩 Supported Instruction Set
+## Supported Instruction Set
 
 ### Core Instructions
 
@@ -57,7 +57,7 @@ Pseudo-instructions are expanded according to the rules provided in the course�
 
 ---
 
-## 📦 How to Run
+## How to Run
 
 ### Milestone 1 — Single Instruction Mode
 
@@ -115,7 +115,7 @@ Example:
 
 ---
 
-## 🗂️ File Parsing Overview
+## File Parsing Overview
 
 ### Section Splitting
 
@@ -130,7 +130,7 @@ Rules:
 
 ---
 
-## 📚 Data Section Handling
+## Data Section Handling
 
 Each line in `.data` may be:
 - Empty  
@@ -166,7 +166,7 @@ Example addresses (from `EvenOrOdd.asm`):
 
 ---
 
-## 🧵 Text Section Handling
+## Text Section Handling
 
 Each line in `.text` may be:
 - Empty  
@@ -198,7 +198,7 @@ Example branch offset:
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 Reduced-ISA-MIPS-Assembler/
