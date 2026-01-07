@@ -209,7 +209,7 @@ Reduced-ISA-MIPS-Assembler/
 
 ---
 
-## 🛠️ Technologies Used
+## Technologies Used
 
 - **Java**  
 - Standard Java I/O and parsing utilities  
